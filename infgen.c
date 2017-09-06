@@ -481,6 +481,7 @@ local inline void warn(char *fmt, ...)
 struct state {
     /* output state */
     int binary;                 /* true to write compact binary format */
+    int hex;                    /* true to write hexdump format literals */
     int data;                   /* true to output literals and matches */
     int tree;                   /* true to output dynamic tree */
     int draw;                   /* true to output dynamic descriptor */
@@ -523,7 +524,7 @@ struct state {
  * Write a byte in a literal or data defgen command, keeping the line length
  * reasonable and using string literals whenever possible.
  */
-local inline void putval(int val, char *command, int *col, FILE *out)
+local inline void putval(int val, char *command, int *col, FILE *out, int hex)
 {
     /* new line if too long or decimal after string */
     if (*col == 0 || (*col < 0 ? -*col : *col) > LINELEN - 4 ||
@@ -535,14 +536,26 @@ local inline void putval(int val, char *command, int *col, FILE *out)
 
     /* string literal (already range-checked above) */
     if (*col < 0) {
-        putc(val, out);
+        if (hex) {
+            fprintf(out, " 0x%02x", val); 
+        } else {
+            putc(val, out);
+        }
         (*col)--;
     }
 
     /* new string literal (mark with negative lit) */
     else if (val >= 0x20 && val <= 0x7e) {
-        *col += fprintf(out, " '%c", val);
+        if (hex) {
+            *col += fprintf(out, " 0x%02x", val);
+        } else {
+            *col += fprintf(out, " '%c", val);
+        }
         *col = -*col;
+    }
+
+    else if (hex) {
+        *col += fprintf(out, " 0x%02x", val);
     }
 
     /* decimal literal */
@@ -657,7 +670,7 @@ local int stored(struct state *s)
             }
         }
         if (s->data)
-            putval(octet, "data", &s->col, s->out);
+            putval(octet, "data", &s->col, s->out, s->hex);
         s->blockout++;
         s->symbols++;
     }
@@ -846,7 +859,7 @@ local int codes(struct state *s,
                 }
             }
             if (s->data)
-                putval(symbol, "literal", &s->col, s->out);
+                putval(symbol, "literal", &s->col, s->out, s->hex);
             s->blockout += 1;
             if (s->max < s->win)
                 s->max++;
@@ -1044,7 +1057,7 @@ local int dynamic(struct state *s)
             if (s->binary)
                 putc(symbol + 1, s->out);
             if (s->draw)
-                putval(symbol, "lens", &s->col, s->out);
+                putval(symbol, "lens", &s->col, s->out, s->hex);
             lengths[index++] = symbol;
         }
         else {                          /* repeat instruction */
@@ -1262,6 +1275,7 @@ local void help(void)
           "    -s   Include deflate block statistics (as comments)\n"
           "    -r   Assume raw deflate data -- do not look for headers\n"
           "    -b   Write compact binary format (only -r honored)\n"
+          "    -x   Write hexdump format for all literals\n"
           "\n",
           stderr);
 }
@@ -1305,6 +1319,7 @@ int main(int argc, char **argv)
             switch (*arg++) {
             case 'i':  info = 1;        break;
             case 'b':  s.binary = 1;    break;
+            case 'x':  s.hex = 1;       break;
             case 'q':
                 if (s.tree)
                     s.tree = 0;
@@ -1394,7 +1409,7 @@ int main(int argc, char **argv)
                 else
                     do {
                         if (info)
-                            putval(NEXT(s.in), "extra", &col, s.out);
+                            putval(NEXT(s.in), "extra", &col, s.out, s.hex);
                     } while (--val);
                 if (info && col) {
                     putc('\n', s.out);
@@ -1409,7 +1424,7 @@ int main(int argc, char **argv)
                 else
                     do {
                         if (info)
-                            putval(n, "name", &col, s.out);
+                            putval(n, "name", &col, s.out, s.hex);
                     } while (NEXT(s.in) != 0);
                 if (info && col) {
                     putc('\n', s.out);
@@ -1424,7 +1439,7 @@ int main(int argc, char **argv)
                 else
                     do {
                         if (info)
-                            putval(n, "comment", &col, s.out);
+                            putval(n, "comment", &col, s.out, s.hex);
                     } while (NEXT(s.in) != 0);
                 if (info && col) {
                     putc('\n', s.out);
